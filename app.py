@@ -1,5 +1,4 @@
 import streamlit as st
-from exa_py import Exa
 from agno.agent import Agent
 from agno.tools.firecrawl import FirecrawlTools
 from agno.models.openai import OpenAIChat
@@ -28,16 +27,16 @@ if "api_keys_initialized" not in st.session_state:
     # Get API keys from environment variables
     st.session_state.env_openai_api_key = os.getenv("OPENAI_API_KEY", "")
     st.session_state.env_firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY", "")
-    st.session_state.env_perplexity_api_key = os.getenv("PERPLEXITY_API_KEY", "")
-    st.session_state.env_exa_api_key = os.getenv("EXA_API_KEY", "")
     
     # Initialize the working API keys with environment values
     st.session_state.openai_api_key = st.session_state.env_openai_api_key
     st.session_state.firecrawl_api_key = st.session_state.env_firecrawl_api_key
-    st.session_state.perplexity_api_key = st.session_state.env_perplexity_api_key
-    st.session_state.exa_api_key = st.session_state.env_exa_api_key
     
     st.session_state.api_keys_initialized = True
+
+# Initialize session state for competitor URLs
+if "competitor_urls" not in st.session_state:
+    st.session_state.competitor_urls = []
 
 # Function to save API keys to .env file
 def save_api_keys_to_env():
@@ -50,19 +49,9 @@ def save_api_keys_to_env():
         if st.session_state.firecrawl_api_key:
             set_key(env_path, "FIRECRAWL_API_KEY", st.session_state.firecrawl_api_key)
             
-        # Save Perplexity API key
-        if st.session_state.perplexity_api_key:
-            set_key(env_path, "PERPLEXITY_API_KEY", st.session_state.perplexity_api_key)
-            
-        # Save Exa API key
-        if st.session_state.exa_api_key:
-            set_key(env_path, "EXA_API_KEY", st.session_state.exa_api_key)
-            
         # Update environment variables in session state
         st.session_state.env_openai_api_key = st.session_state.openai_api_key
         st.session_state.env_firecrawl_api_key = st.session_state.firecrawl_api_key
-        st.session_state.env_perplexity_api_key = st.session_state.perplexity_api_key
-        st.session_state.env_exa_api_key = st.session_state.exa_api_key
         
         return True
     except Exception as e:
@@ -73,47 +62,43 @@ def save_api_keys_to_env():
 with st.sidebar:
     st.title("AI Competitor Intelligence")
     
-    # Add search engine selection
-    search_engine = st.selectbox(
-        "Select Search Endpoint",
-        options=["Perplexity AI - Sonar Pro", "Exa AI"],
-        help="Choose which AI service to use for finding competitor URLs"
-    )
-    
     # API Key Management Section
     st.subheader("API Key Management")
     
     # Add option to show/hide API key inputs with expander
-    with st.expander("Configure API Keys", expanded=False):
+    with st.expander("Configure API Keys", expanded=True):
         st.info("API keys from .env file are used by default. You can override them here.")
         
-        # Function to handle API key updates
+        # Function to handle API key updates with better validation
         def update_api_key(key_name, env_key_name):
             new_value = st.text_input(
                 f"{key_name} API Key", 
                 value=st.session_state[env_key_name] if st.session_state[env_key_name] else "",
                 type="password",
-                help=f"Enter your {key_name} API key or leave blank to use the one from .env file"
+                help=f"Enter your {key_name} API key or leave blank to use the one from .env file",
+                key=f"input_{key_name.lower()}"
             )
             
-            # Only update if user entered something or if we have an env value
+            # Update session state regardless of input
             if new_value:
                 st.session_state[key_name.lower() + "_api_key"] = new_value
                 return True
             elif st.session_state[env_key_name]:
                 st.session_state[key_name.lower() + "_api_key"] = st.session_state[env_key_name]
                 return True
-            return False
+            else:
+                # Set to empty string to avoid None values
+                st.session_state[key_name.lower() + "_api_key"] = ""
+                return False
         
-        # Always required API keys
+        # Required API keys
         has_openai = update_api_key("OpenAI", "env_openai_api_key")
         has_firecrawl = update_api_key("Firecrawl", "env_firecrawl_api_key")
         
-        # Search engine specific API keys
-        if search_engine == "Perplexity AI - Sonar Pro":
-            has_search_engine = update_api_key("Perplexity", "env_perplexity_api_key")
-        else:  # Exa AI
-            has_search_engine = update_api_key("Exa", "env_exa_api_key")
+        # Debug information
+        st.write("API Key Status:")
+        st.write(f"OpenAI: {'Set' if st.session_state.openai_api_key else 'Not Set'}")
+        st.write(f"Firecrawl: {'Set' if st.session_state.firecrawl_api_key else 'Not Set'}")
         
         # Buttons for API key management
         col1, col2 = st.columns(2)
@@ -121,8 +106,6 @@ with st.sidebar:
             if st.button("Reset to .env values"):
                 st.session_state.openai_api_key = st.session_state.env_openai_api_key
                 st.session_state.firecrawl_api_key = st.session_state.env_firecrawl_api_key
-                st.session_state.perplexity_api_key = st.session_state.env_perplexity_api_key
-                st.session_state.exa_api_key = st.session_state.env_exa_api_key
                 st.rerun()
         
         with col2:
@@ -132,18 +115,16 @@ with st.sidebar:
                     st.rerun()
     
     # Display API status
-    api_status_ok = has_openai and has_firecrawl and has_search_engine
+    api_status_ok = bool(st.session_state.openai_api_key) and bool(st.session_state.firecrawl_api_key)
     
     if api_status_ok:
         st.success("✅ All required API keys are configured")
     else:
         missing_keys = []
-        if not has_openai:
+        if not st.session_state.openai_api_key:
             missing_keys.append("OpenAI")
-        if not has_firecrawl:
+        if not st.session_state.firecrawl_api_key:
             missing_keys.append("Firecrawl")
-        if not has_search_engine:
-            missing_keys.append("Search Engine")
         
         st.error(f"❌ Missing API keys: {', '.join(missing_keys)}")
 
@@ -152,22 +133,27 @@ st.title("🧲 AI Competitor Intelligence Agent Team")
 st.info(
     """
     This app helps businesses analyze their competitors by extracting structured data from competitor websites and generating insights using AI.
-    - Provide a **URL** or a **description** of your company.
-    - The app will fetch competitor URLs, extract relevant information, and generate a detailed analysis report.
+    - Provide your **company URL** and the **number of competitors** you want to analyze
+    - Enter the competitor URLs directly
+    - The app will extract relevant information and generate a detailed analysis report
     """
 )
-st.success("For better results, provide both URL and a 5-6 word description of your company!")
 
-# Input fields for URL and description
-url = st.text_input("Enter your company URL :")
-description = st.text_area("Enter a description of your company (if URL is not available):")
+# Input field for company URL
+company_url = st.text_input("Enter your company URL:", key="company_url")
+
+# Input field for number of competitors
+num_competitors = st.number_input("Number of competitor URLs to analyze:", min_value=1, max_value=5, value=3, step=1)
+
+# Generate input fields for competitor URLs
+competitor_urls = []
+for i in range(int(num_competitors)):
+    competitor_url = st.text_input(f"Competitor URL #{i+1}:", key=f"competitor_url_{i}")
+    if competitor_url:
+        competitor_urls.append(competitor_url)
 
 # Initialize API keys and tools
 if api_status_ok:
-    # Initialize Exa only if selected
-    if search_engine == "Exa AI":
-        exa = Exa(api_key=st.session_state.exa_api_key)
-
     firecrawl_tools = FirecrawlTools(
         api_key=st.session_state.firecrawl_api_key,
         scrape=False,
@@ -175,6 +161,7 @@ if api_status_ok:
         limit=5
     )
 
+    # Using gpt-3.5-turbo instead of gpt-4o-mini which might not be available
     firecrawl_agent = Agent(
         model=OpenAIChat(id="gpt-3.5-turbo", api_key=st.session_state.openai_api_key),
         tools=[firecrawl_tools, DuckDuckGoTools()],
@@ -194,74 +181,6 @@ if api_status_ok:
         show_tool_calls=True,
         markdown=True
     )
-
-    def get_competitor_urls(url: str = None, description: str = None) -> list[str]:
-        if not url and not description:
-            raise ValueError("Please provide either a URL or a description.")
-
-        if search_engine == "Perplexity AI - Sonar Pro":
-            perplexity_url = "https://api.perplexity.ai/chat/completions"
-            
-            content = "Find me 5 competitor company (in semarang city indonesia) URLs similar to the company with "
-            if url and description:
-                content += f"URL: {url} and description: {description}"
-            elif url:
-                content += f"URL: {url}"
-            else:
-                content += f"description: {description}"
-            content += ". ONLY RESPOND WITH THE URLS, NO OTHER TEXT."
-
-            payload = {
-                "model": "sonar-pro",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "Be precise and only return 5 company URLs ONLY."
-                    },
-                    {
-                        "role": "user",
-                        "content": content
-                    }
-                ],
-                "max_tokens": 1000,
-                "temperature": 0.2,
-            }
-            
-            headers = {
-                "Authorization": f"Bearer {st.session_state.perplexity_api_key}",
-                "Content-Type": "application/json"
-            }
-
-            try:
-                response = requests.post(perplexity_url, json=payload, headers=headers)
-                response.raise_for_status()
-                urls = response.json()['choices'][0]['message']['content'].strip().split('\n')
-                return [url.strip() for url in urls if url.strip()]
-            except Exception as e:
-                st.error(f"Error fetching competitor URLs from Perplexity: {str(e)}")
-                return []
-
-        else:  # Exa AI
-            try:
-                if url:
-                    result = exa.find_similar(
-                        url=url,
-                        num_results=3,
-                        exclude_source_domain=True,
-                        category="company"
-                    )
-                else:
-                    result = exa.search(
-                        description,
-                        type="neural",
-                        category="company",
-                        use_autoprompt=True,
-                        num_results=3
-                    )
-                return [item.url for item in result.results]
-            except Exception as e:
-                st.error(f"Error fetching competitor URLs from Exa: {str(e)}")
-                return []
 
     class CompetitorDataSchema(BaseModel):
         company_name: str = Field(description="Name of the company")
@@ -319,16 +238,66 @@ if api_status_ok:
                 return None
                 
         except Exception as e:
+            st.error(f"Error extracting data from {competitor_url}: {str(e)}")
             return None
 
-    def generate_comparison_report(competitor_data: list) -> None:
-        # Format the competitor data for the prompt
-        formatted_data = json.dumps(competitor_data, indent=2)
-        print(formatted_data)
+    def extract_company_info(url: str) -> Optional[dict]:
+        # Identical to extract_competitor_info but for the user's company
+        try:
+            app = FirecrawlApp(api_key=st.session_state.firecrawl_api_key)
+            url_pattern = f"{url}/*"
+            
+            extraction_prompt = """
+            Extract detailed information about the company's offerings, including:
+            - Company name and basic information
+            - Pricing details, plans, and tiers
+            - Key features and main capabilities
+            - Technology stack and technical details
+            - Marketing focus and target audience
+            - Customer feedback and testimonials
+            
+            Analyze the entire website content to provide comprehensive information for each field.
+            """
+            
+            response = app.extract(
+                [url_pattern],
+                {
+                    'prompt': extraction_prompt,
+                    'schema': CompetitorDataSchema.model_json_schema(),
+                }
+            )
+            
+            if response.get('success') and response.get('data'):
+                extracted_info = response['data']
+                
+                company_json = {
+                    "url": url,
+                    "company_name": extracted_info.get('company_name', 'N/A'),
+                    "pricing": extracted_info.get('pricing', 'N/A'),
+                    "key_features": extracted_info.get('key_features', [])[:5],
+                    "tech_stack": extracted_info.get('tech_stack', [])[:5],
+                    "marketing_focus": extracted_info.get('marketing_focus', 'N/A'),
+                    "customer_feedback": extracted_info.get('customer_feedback', 'N/A')
+                }
+                
+                return company_json
+                
+            else:
+                return None
+                
+        except Exception as e:
+            st.error(f"Error extracting data from your company URL {url}: {str(e)}")
+            return None
+
+    def generate_comparison_report(company_data: dict, competitor_data: list) -> None:
+        # Format the data for the prompt
+        all_data = [company_data] + competitor_data
+        formatted_data = json.dumps(all_data, indent=2)
         
         # Updated system prompt for more structured output
         system_prompt = f"""
-        As an expert business analyst, analyze the following competitor data in JSON format and create a structured comparison.
+        As an expert business analyst, analyze the following data in JSON format and create a structured comparison.
+        The first entry is the user's company, followed by competitor data.
         Extract and summarize the key information into concise points.
 
         {formatted_data}
@@ -342,13 +311,13 @@ if api_status_ok:
         3. For Tech Stack: List top 3 most relevant technologies only
         4. Keep all entries clear and concise
         5. Format feedback as brief quotes
-        6. Return ONLY the structured data, no additional text
+        6. Return ONLY the structured data as a markdown table, no additional text
         """
 
-        # Get comparison data from agent
-        comparison_response = comparison_agent.run(system_prompt)
-        
         try:
+            # Get comparison data from agent
+            comparison_response = comparison_agent.run(system_prompt)
+            
             # Split the response into lines and clean them
             table_lines = [
                 line.strip() 
@@ -381,33 +350,37 @@ if api_status_ok:
             )
             
             # Display the table
-            st.subheader("Competitor Comparison")
+            st.subheader("Company Comparison")
             st.table(df)
             
         except Exception as e:
             st.error(f"Error creating comparison table: {str(e)}")
             st.write("Raw comparison data for debugging:", comparison_response.content)
 
-    def generate_analysis_report(competitor_data: list):
-        # Format the competitor data for the prompt
-        formatted_data = json.dumps(competitor_data, indent=2)
-        print("Analysis Data:", formatted_data)  # For debugging
+    def generate_analysis_report(company_data: dict, competitor_data: list):
+        # Format the data for the prompt
+        formatted_company = json.dumps(company_data, indent=2)
+        formatted_competitors = json.dumps(competitor_data, indent=2)
         
         report = analysis_agent.run(
-            f"""Analyze the following competitor data in JSON format and identify market opportunities to improve my own company:
+            f"""Analyze the following data and identify market opportunities to improve the company:
             
-            {formatted_data}
+            USER'S COMPANY:
+            {formatted_company}
+            
+            COMPETITORS:
+            {formatted_competitors}
 
             Tasks:
             1. Identify market gaps and opportunities based on competitor offerings
-            2. Analyze competitor weaknesses that we can capitalize on
-            3. Recommend unique features or capabilities we should develop
+            2. Analyze competitor weaknesses that the company can capitalize on
+            3. Recommend unique features or capabilities they should develop
             4. Suggest pricing and positioning strategies to gain competitive advantage
             5. Outline specific growth opportunities in underserved market segments
             6. Provide actionable recommendations for product development and go-to-market strategy
 
-            Focus on finding opportunities where we can differentiate and do better than competitors.
-            Highlight any unmet customer needs or pain points we can address.
+            Focus on finding opportunities where the company can differentiate and do better than competitors.
+            Highlight any unmet customer needs or pain points they can address.
             """
         )
         return report.content
@@ -416,11 +389,22 @@ if api_status_ok:
     if st.button("Analyze Competitors"):
         if not api_status_ok:
             st.error("⚠️ Please configure all required API keys in the sidebar before proceeding.")
-        elif url or description:
-            with st.spinner("Fetching competitor URLs..."):
-                competitor_urls = get_competitor_urls(url=url, description=description)
-                st.write(f"Competitor URLs: {competitor_urls}")
+        elif not company_url:
+            st.error("Please enter your company URL.")
+        elif len(competitor_urls) == 0:
+            st.error("Please enter at least one competitor URL.")
+        elif len(competitor_urls) < int(num_competitors):
+            st.warning(f"You specified {num_competitors} competitors but only entered {len(competitor_urls)} URLs.")
+            st.error("Please fill in all competitor URL fields.")
+        else:
+            # Extract company information
+            with st.spinner(f"Analyzing your company: {company_url}..."):
+                company_info = extract_company_info(company_url)
+                if company_info is None:
+                    st.error(f"Could not extract data from your company URL: {company_url}")
+                    st.stop()
             
+            # Extract competitor information
             competitor_data = []
             for comp_url in competitor_urls:
                 with st.spinner(f"Analyzing Competitor: {comp_url}..."):
@@ -431,19 +415,17 @@ if api_status_ok:
             if competitor_data:
                 # Generate and display comparison report
                 with st.spinner("Generating comparison table..."):
-                    generate_comparison_report(competitor_data)
+                    generate_comparison_report(company_info, competitor_data)
                 
                 # Generate and display final analysis report
                 with st.spinner("Generating analysis report..."):
-                    analysis_report = generate_analysis_report(competitor_data)
+                    analysis_report = generate_analysis_report(company_info, competitor_data)
                     st.subheader("Competitor Analysis Report")
                     st.markdown(analysis_report)
                 
                 st.success("Analysis complete!")
             else:
                 st.error("Could not extract data from any competitor URLs")
-        else:
-            st.error("Please provide either a URL or a description.")
     else:
         # Display API key status message when the app first loads
         if not api_status_ok:
