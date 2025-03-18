@@ -202,7 +202,7 @@ if api_status_ok:
         if search_engine == "Perplexity AI - Sonar Pro":
             perplexity_url = "https://api.perplexity.ai/chat/completions"
             
-            content = "Find me 3 competitor company URLs similar to the company with "
+            content = "Find me 5 competitor company (in semarang city indonesia) URLs similar to the company with "
             if url and description:
                 content += f"URL: {url} and description: {description}"
             elif url:
@@ -216,7 +216,7 @@ if api_status_ok:
                 "messages": [
                     {
                         "role": "system",
-                        "content": "Be precise and only return 3 company URLs ONLY."
+                        "content": "Be precise and only return 5 company URLs ONLY."
                     },
                     {
                         "role": "user",
