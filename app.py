@@ -1,7 +1,7 @@
 import streamlit as st
 from agno.agent import Agent
 from agno.tools.firecrawl import FirecrawlTools
-from agno.models.openai import OpenAIChat
+import google.generativeai as genai
 from agno.tools.duckduckgo import DuckDuckGoTools
 import pandas as pd
 import requests
@@ -25,11 +25,11 @@ st.set_page_config(page_title="AI Competitor Intelligence Agent Team", layout="w
 # Initialize session state for API keys if not already set
 if "api_keys_initialized" not in st.session_state:
     # Get API keys from environment variables
-    st.session_state.env_openai_api_key = os.getenv("OPENAI_API_KEY", "")
+    st.session_state.env_gemini_api_key = os.getenv("GEMINI_API_KEY", "")
     st.session_state.env_firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY", "")
     
     # Initialize the working API keys with environment values
-    st.session_state.openai_api_key = st.session_state.env_openai_api_key
+    st.session_state.gemini_api_key = st.session_state.env_gemini_api_key
     st.session_state.firecrawl_api_key = st.session_state.env_firecrawl_api_key
     
     st.session_state.api_keys_initialized = True
@@ -41,16 +41,16 @@ if "competitor_urls" not in st.session_state:
 # Function to save API keys to .env file
 def save_api_keys_to_env():
     try:
-        # Save OpenAI API key
-        if st.session_state.openai_api_key:
-            set_key(env_path, "OPENAI_API_KEY", st.session_state.openai_api_key)
+        # Save Gemini API key
+        if st.session_state.gemini_api_key:
+            set_key(env_path, "GEMINI_API_KEY", st.session_state.gemini_api_key)
             
         # Save Firecrawl API key
         if st.session_state.firecrawl_api_key:
             set_key(env_path, "FIRECRAWL_API_KEY", st.session_state.firecrawl_api_key)
             
         # Update environment variables in session state
-        st.session_state.env_openai_api_key = st.session_state.openai_api_key
+        st.session_state.env_gemini_api_key = st.session_state.gemini_api_key
         st.session_state.env_firecrawl_api_key = st.session_state.firecrawl_api_key
         
         return True
@@ -92,19 +92,19 @@ with st.sidebar:
                 return False
         
         # Required API keys
-        has_openai = update_api_key("OpenAI", "env_openai_api_key")
+        has_gemini = update_api_key("Gemini", "env_gemini_api_key")
         has_firecrawl = update_api_key("Firecrawl", "env_firecrawl_api_key")
         
         # Debug information
         st.write("API Key Status:")
-        st.write(f"OpenAI: {'Set' if st.session_state.openai_api_key else 'Not Set'}")
+        st.write(f"Gemini: {'Set' if st.session_state.gemini_api_key else 'Not Set'}")
         st.write(f"Firecrawl: {'Set' if st.session_state.firecrawl_api_key else 'Not Set'}")
         
         # Buttons for API key management
         col1, col2 = st.columns(2)
         with col1:
             if st.button("Reset to .env values"):
-                st.session_state.openai_api_key = st.session_state.env_openai_api_key
+                st.session_state.gemini_api_key = st.session_state.env_gemini_api_key
                 st.session_state.firecrawl_api_key = st.session_state.env_firecrawl_api_key
                 st.rerun()
         
@@ -115,14 +115,14 @@ with st.sidebar:
                     st.rerun()
     
     # Display API status
-    api_status_ok = bool(st.session_state.openai_api_key) and bool(st.session_state.firecrawl_api_key)
+    api_status_ok = bool(st.session_state.gemini_api_key) and bool(st.session_state.firecrawl_api_key)
     
     if api_status_ok:
         st.success("✅ All required API keys are configured")
     else:
         missing_keys = []
-        if not st.session_state.openai_api_key:
-            missing_keys.append("OpenAI")
+        if not st.session_state.gemini_api_key:
+            missing_keys.append("Gemini")
         if not st.session_state.firecrawl_api_key:
             missing_keys.append("Firecrawl")
         
@@ -154,6 +154,9 @@ for i in range(int(num_competitors)):
 
 # Initialize API keys and tools
 if api_status_ok:
+    # Configure Gemini
+    genai.configure(api_key=st.session_state.gemini_api_key)
+    
     firecrawl_tools = FirecrawlTools(
         api_key=st.session_state.firecrawl_api_key,
         scrape=False,
@@ -161,25 +164,25 @@ if api_status_ok:
         limit=5
     )
 
-    # Using gpt-3.5-turbo instead of gpt-4o-mini which might not be available
-    firecrawl_agent = Agent(
-        model=OpenAIChat(id="gpt-3.5-turbo", api_key=st.session_state.openai_api_key),
-        tools=[firecrawl_tools, DuckDuckGoTools()],
-        show_tool_calls=True,
-        markdown=True
-    )
+    # Initialize Gemini model
+    generation_config = {
+        "temperature": 0.7,
+        "top_p": 1,
+        "top_k": 32,
+        "max_output_tokens": 4096,
+    }
 
-    analysis_agent = Agent(
-        model=OpenAIChat(id="gpt-3.5-turbo", api_key=st.session_state.openai_api_key),
-        show_tool_calls=True,
-        markdown=True
-    )
+    safety_settings = [
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+    ]
 
-    # New agent for comparing competitor data
-    comparison_agent = Agent(
-        model=OpenAIChat(id="gpt-3.5-turbo", api_key=st.session_state.openai_api_key),
-        show_tool_calls=True,
-        markdown=True
+    gemini_model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash-latest",
+        generation_config=generation_config,
+        safety_settings=safety_settings
     )
 
     class CompetitorDataSchema(BaseModel):
@@ -242,7 +245,6 @@ if api_status_ok:
             return None
 
     def extract_company_info(url: str) -> Optional[dict]:
-        # Identical to extract_competitor_info but for the user's company
         try:
             app = FirecrawlApp(api_key=st.session_state.firecrawl_api_key)
             url_pattern = f"{url}/*"
@@ -290,11 +292,9 @@ if api_status_ok:
             return None
 
     def generate_comparison_report(company_data: dict, competitor_data: list) -> None:
-        # Format the data for the prompt
         all_data = [company_data] + competitor_data
         formatted_data = json.dumps(all_data, indent=2)
         
-        # Updated system prompt for more structured output
         system_prompt = f"""
         As an expert business analyst, analyze the following data in JSON format and create a structured comparison.
         The first entry is the user's company, followed by competitor data.
@@ -315,26 +315,21 @@ if api_status_ok:
         """
 
         try:
-            # Get comparison data from agent
-            comparison_response = comparison_agent.run(system_prompt)
-            
-            # Split the response into lines and clean them
+            response = gemini_model.generate_content(system_prompt)
             table_lines = [
                 line.strip() 
-                for line in comparison_response.content.split('\n') 
+                for line in response.text.split('\n') 
                 if line.strip() and '|' in line
             ]
             
-            # Extract headers (first row)
             headers = [
                 col.strip() 
                 for col in table_lines[0].split('|') 
                 if col.strip()
             ]
             
-            # Extract data rows (skip header and separator rows)
             data_rows = []
-            for line in table_lines[2:]:  # Skip header and separator rows
+            for line in table_lines[2:]:
                 row_data = [
                     cell.strip() 
                     for cell in line.split('|') 
@@ -343,47 +338,47 @@ if api_status_ok:
                 if len(row_data) == len(headers):
                     data_rows.append(row_data)
             
-            # Create DataFrame
             df = pd.DataFrame(
                 data_rows,
                 columns=headers
             )
             
-            # Display the table
             st.subheader("Company Comparison")
             st.table(df)
             
         except Exception as e:
             st.error(f"Error creating comparison table: {str(e)}")
-            st.write("Raw comparison data for debugging:", comparison_response.content)
+            st.write("Raw comparison data for debugging:", response.text)
 
     def generate_analysis_report(company_data: dict, competitor_data: list):
-        # Format the data for the prompt
         formatted_company = json.dumps(company_data, indent=2)
         formatted_competitors = json.dumps(competitor_data, indent=2)
         
-        report = analysis_agent.run(
-            f"""Analyze the following data and identify market opportunities to improve the company:
-            
-            USER'S COMPANY:
-            {formatted_company}
-            
-            COMPETITORS:
-            {formatted_competitors}
+        prompt = f"""Analyze the following data and identify market opportunities to improve the company:
+        
+        USER'S COMPANY:
+        {formatted_company}
+        
+        COMPETITORS:
+        {formatted_competitors}
 
-            Tasks:
-            1. Identify market gaps and opportunities based on competitor offerings
-            2. Analyze competitor weaknesses that the company can capitalize on
-            3. Recommend unique features or capabilities they should develop
-            4. Suggest pricing and positioning strategies to gain competitive advantage
-            5. Outline specific growth opportunities in underserved market segments
-            6. Provide actionable recommendations for product development and go-to-market strategy
+        Tasks:
+        1. Identify market gaps and opportunities based on competitor offerings
+        2. Analyze competitor weaknesses that the company can capitalize on
+        3. Recommend unique features or capabilities they should develop
+        4. Suggest pricing and positioning strategies to gain competitive advantage
+        5. Outline specific growth opportunities in underserved market segments
+        6. Provide actionable recommendations for product development and go-to-market strategy
 
-            Focus on finding opportunities where the company can differentiate and do better than competitors.
-            Highlight any unmet customer needs or pain points they can address.
-            """
-        )
-        return report.content
+        Focus on finding opportunities where the company can differentiate and do better than competitors.
+        Highlight any unmet customer needs or pain points they can address.
+        """
+
+        try:
+            response = gemini_model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            return f"Error generating analysis: {str(e)}"
 
     # Run analysis when the user clicks the button
     if st.button("Analyze Competitors"):
@@ -427,6 +422,5 @@ if api_status_ok:
             else:
                 st.error("Could not extract data from any competitor URLs")
     else:
-        # Display API key status message when the app first loads
         if not api_status_ok:
             st.warning("⚠️ Configure your API keys in the sidebar before analyzing competitors.")
