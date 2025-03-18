@@ -543,7 +543,7 @@ if api_status_ok:
     )
 
     generation_config = {
-        "temperature": 0.3,
+        "temperature": 0.1,
         "top_p": 1,
         "top_k": 32,
         "max_output_tokens": 4096,
@@ -669,10 +669,10 @@ if api_status_ok:
                         competitors_data.append(data)
             
             if company_data and competitors_data:
-                st.subheader("Competitive Comparison")
-                comparison_df = generate_comparison(company_data, competitors_data)
-                if not comparison_df.empty:
-                    st.table(comparison_df)
+                # st.subheader("Competitive Comparison")
+                # comparison_df = generate_comparison(company_data, competitors_data)
+                # if not comparison_df.empty:
+                #     st.table(comparison_df)
                 
                 st.subheader("Strategic Recommendations")
                 analysis = generate_strategic_analysis(company_data, competitors_data)
