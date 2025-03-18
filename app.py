@@ -176,21 +176,21 @@ if api_status_ok:
     )
 
     firecrawl_agent = Agent(
-        model=OpenAIChat(id="gpt-4o-mini", api_key=st.session_state.openai_api_key),
+        model=OpenAIChat(id="gpt-3.5-turbo", api_key=st.session_state.openai_api_key),
         tools=[firecrawl_tools, DuckDuckGoTools()],
         show_tool_calls=True,
         markdown=True
     )
 
     analysis_agent = Agent(
-        model=OpenAIChat(id="gpt-4o-mini", api_key=st.session_state.openai_api_key),
+        model=OpenAIChat(id="gpt-3.5-turbo", api_key=st.session_state.openai_api_key),
         show_tool_calls=True,
         markdown=True
     )
 
     # New agent for comparing competitor data
     comparison_agent = Agent(
-        model=OpenAIChat(id="gpt-4o-mini", api_key=st.session_state.openai_api_key),
+        model=OpenAIChat(id="gpt-3.5-turbo", api_key=st.session_state.openai_api_key),
         show_tool_calls=True,
         markdown=True
     )
