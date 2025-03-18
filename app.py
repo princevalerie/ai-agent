@@ -189,7 +189,6 @@ if api_status_ok:
         company_name: str = Field(description="Name of the company")
         pricing: str = Field(description="Pricing details, tiers, and plans")
         key_features: List[str] = Field(description="Main features and capabilities of the product/service")
-        tech_stack: List[str] = Field(description="Technologies, frameworks, and tools used")
         marketing_focus: str = Field(description="Main marketing angles and target audience")
         customer_feedback: str = Field(description="Customer testimonials, reviews, and feedback")
 
@@ -206,7 +205,6 @@ if api_status_ok:
             - Company name and basic information
             - Pricing details, plans, and tiers
             - Key features and main capabilities
-            - Technology stack and technical details
             - Marketing focus and target audience
             - Customer feedback and testimonials
             
@@ -230,7 +228,6 @@ if api_status_ok:
                     "company_name": extracted_info.get('company_name', 'N/A'),
                     "pricing": extracted_info.get('pricing', 'N/A'),
                     "key_features": extracted_info.get('key_features', [])[:5],  # Top 5 features
-                    "tech_stack": extracted_info.get('tech_stack', [])[:5],      # Top 5 tech stack items
                     "marketing_focus": extracted_info.get('marketing_focus', 'N/A'),
                     "customer_feedback": extracted_info.get('customer_feedback', 'N/A')
                 }
@@ -254,7 +251,6 @@ if api_status_ok:
             - Company name and basic information
             - Pricing details, plans, and tiers
             - Key features and main capabilities
-            - Technology stack and technical details
             - Marketing focus and target audience
             - Customer feedback and testimonials
             
@@ -277,7 +273,6 @@ if api_status_ok:
                     "company_name": extracted_info.get('company_name', 'N/A'),
                     "pricing": extracted_info.get('pricing', 'N/A'),
                     "key_features": extracted_info.get('key_features', [])[:5],
-                    "tech_stack": extracted_info.get('tech_stack', [])[:5],
                     "marketing_focus": extracted_info.get('marketing_focus', 'N/A'),
                     "customer_feedback": extracted_info.get('customer_feedback', 'N/A')
                 }
@@ -303,15 +298,14 @@ if api_status_ok:
         {formatted_data}
 
         Return the data in a structured format with EXACTLY these columns:
-        Company, Pricing, Key Features, Tech Stack, Marketing Focus, Customer Feedback
+        Company, Pricing, Key Features, Marketing Focus, Customer Feedback
 
         Rules:
         1. For Company: Include company name and URL
         2. For Key Features: List top 3 most important features only
-        3. For Tech Stack: List top 3 most relevant technologies only
-        4. Keep all entries clear and concise
-        5. Format feedback as brief quotes
-        6. Return ONLY the structured data as a markdown table, no additional text
+        3. Keep all entries clear and concise
+        4. Format feedback as brief quotes
+        5. Return ONLY the structured data as a markdown table, no additional text
         """
 
         try:
