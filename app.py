@@ -123,13 +123,13 @@ with st.sidebar:
                 st.session_state.firecrawl_api_key = st.session_state.env_firecrawl_api_key
                 st.session_state.perplexity_api_key = st.session_state.env_perplexity_api_key
                 st.session_state.exa_api_key = st.session_state.env_exa_api_key
-                st.experimental_rerun()
+                st.rerun()
         
         with col2:
             if st.button("Save to .env file"):
                 if save_api_keys_to_env():
                     st.success("API keys saved to .env file!")
-                    st.experimental_rerun()
+                    st.rerun()
     
     # Display API status
     api_status_ok = has_openai and has_firecrawl and has_search_engine
