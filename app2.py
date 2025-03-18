@@ -1,9 +1,10 @@
 import streamlit as st
-import google.generativeai as genai
 from agno.agent import Agent
 from agno.tools.firecrawl import FirecrawlTools
+import google.generativeai as genai
 from agno.tools.duckduckgo import DuckDuckGoTools
 import pandas as pd
+import requests
 from firecrawl import FirecrawlApp
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -12,216 +13,414 @@ import os
 from dotenv import load_dotenv, set_key
 import pathlib
 
-# Konfigurasi path .env
+# Get the absolute path to the .env file
 env_path = pathlib.Path(os.path.join(os.getcwd(), '.env'))
+
+# Load environment variables from .env file
 load_dotenv(dotenv_path=env_path)
 
-# Konfigurasi UI Streamlit
-st.set_page_config(page_title="Competitor Intelligence", layout="wide")
+# Streamlit UI
+st.set_page_config(page_title="AI Competitor Intelligence Agent Team", layout="wide")
 
-# Inisialisasi session state
+# Initialize session state for API keys if not already set
 if "api_keys_initialized" not in st.session_state:
+    # Get API keys from environment variables
     st.session_state.env_gemini_api_key = os.getenv("GEMINI_API_KEY", "")
     st.session_state.env_firecrawl_api_key = os.getenv("FIRECRAWL_API_KEY", "")
+    
+    # Initialize the working API keys with environment values
     st.session_state.gemini_api_key = st.session_state.env_gemini_api_key
     st.session_state.firecrawl_api_key = st.session_state.env_firecrawl_api_key
+    
     st.session_state.api_keys_initialized = True
 
-# Model data
-class CompetitorSchema(BaseModel):
-    company_name: str = Field(description="Nama perusahaan")
-    pricing: str = Field(description="Struktur harga dan paket")
-    key_features: List[str] = Field(description="Fitur utama produk/jasa")
-    marketing_focus: str = Field(description="Strategi pemasaran")
-    customer_feedback: str = Field(description="Ulasan pelanggan")
+# Initialize session state for competitor URLs
+if "competitor_urls" not in st.session_state:
+    st.session_state.competitor_urls = []
 
-# Fungsi ekstraksi data
-def extract_data(url: str) -> Optional[dict]:
+# Function to save API keys to .env file
+def save_api_keys_to_env():
     try:
-        app = FirecrawlApp(api_key=st.session_state.firecrawl_api_key)
-        prompt = """
-        Ekstrak informasi berikut dari website:
-        - Nama perusahaan
-        - Detail harga dan paket
-        - Fitur utama (maksimal 5)
-        - Strategi pemasaran
-        - Testimoni pelanggan
+        # Save Gemini API key
+        if st.session_state.gemini_api_key:
+            set_key(env_path, "GEMINI_API_KEY", st.session_state.gemini_api_key)
+            
+        # Save Firecrawl API key
+        if st.session_state.firecrawl_api_key:
+            set_key(env_path, "FIRECRAWL_API_KEY", st.session_state.firecrawl_api_key)
+            
+        # Update environment variables in session state
+        st.session_state.env_gemini_api_key = st.session_state.gemini_api_key
+        st.session_state.env_firecrawl_api_key = st.session_state.firecrawl_api_key
         
-        Hasilkan dalam format JSON.
-        """
-        
-        response = app.extract(
-            url_patterns=[f"{url}/*"],
-            params={
-                "prompt": prompt,
-                "schema": CompetitorSchema.model_json_schema()
-            }
-        )
-        
-        if response.get('data'):
-            return {
-                "url": url,
-                "company_name": response['data'].get('company_name', 'Tidak diketahui'),
-                "pricing": response['data'].get('pricing', 'Tidak tersedia'),
-                "key_features": response['data'].get('key_features', [])[:5],
-                "marketing_focus": response['data'].get('marketing_focus', 'Tidak tersedia'),
-                "customer_feedback": response['data'].get('customer_feedback', 'Tidak tersedia')
-            }
-        return None
+        return True
     except Exception as e:
-        st.error(f"Gagal mengekstrak {url}: {str(e)}")
-        return None
+        st.error(f"Error saving API keys to .env file: {str(e)}")
+        return False
 
-# Fungsi analisis
-def generate_insights(company_data: dict, competitors_data: list) -> str:
-    genai.configure(api_key=st.session_state.gemini_api_key)
-    model = genai.GenerativeModel('gemini-pro')
-    
-    prompt = f"""
-    Analisis perbandingan kompetitor untuk:
-    Perusahaan Utama: {company_data['company_name']}
-    
-    Data Perusahaan Utama:
-    {json.dumps(company_data, indent=2)}
-    
-    Data Kompetitor:
-    {json.dumps(competitors_data, indent=2)}
-    
-    Buat laporan yang berisi:
-    1. Perbandingan fitur utama
-    2. Analisis harga
-    3. Keunggulan kompetitif
-    4. Rekomendasi strategi
-    5. Peluang pasar
-    
-    Format dalam Markdown dengan header yang jelas.
-    Gunakan bahasa Indonesia formal.
-    """
-    
-    try:
-        response = model.generate_content(prompt)
-        return response.text
-    except Exception as e:
-        return f"Error: {str(e)}"
-
-# UI Utama
-st.title("📊 Competitive Intelligence Analyzer")
-st.write("Analisis kompetitor bisnis Anda secara otomatis")
-
-# Input utama
-company_url = st.text_input("URL Perusahaan Anda", help="Masukkan URL website perusahaan Anda")
-num_competitors = st.number_input("Jumlah Kompetitor", 1, 5, 3)
-competitor_urls = [st.text_input(f"URL Kompetitor #{i+1}") for i in range(num_competitors)]
-
-# Fungsi helper untuk tabel fitur
-def create_feature_table(company_data, competitors_data):
-    # Cari jumlah fitur maksimum
-    max_features = max(
-        len(company_data['key_features']),
-        max(len(c['key_features']) for c in competitors_data)
-    )
-    
-    # Buat header kolom
-    feature_columns = [f'Fitur {i+1}' for i in range(max_features)]
-    
-    # Fungsi helper
-    def get_feature(features, index):
-        return features[index] if index < len(features) else '-'
-    
-    # Bangun data tabel
-    table_data = {
-        "Perusahaan": [company_data['company_name']] + [c['company_name'] for c in competitors_data]
-    }
-    
-    for i in range(max_features):
-        table_data[f'Fitur {i+1}'] = (
-            [get_feature(company_data['key_features'], i)] +
-            [get_feature(c['key_features'], i) for c in competitors_data]
-        )
-    
-    return pd.DataFrame(table_data)
-
-if st.button("Mulai Analisis"):
-    # Validasi input
-    if not company_url or not all(competitor_urls):
-        st.error("Harap isi semua URL yang diperlukan")
-        st.stop()
-        
-    if not st.session_state.gemini_api_key or not st.session_state.firecrawl_api_key:
-        st.error("Harap konfigurasi API key di sidebar")
-        st.stop()
-
-    # Ekstraksi data
-    with st.spinner("Menganalisis perusahaan Anda..."):
-        company_data = extract_data(company_url)
-        
-    competitors_data = []
-    for url in competitor_urls:
-        with st.spinner(f"Menganalisis {url}..."):
-            if data := extract_data(url):
-                competitors_data.append(data)
-    
-    if not company_data or not competitors_data:
-        st.error("Gagal mendapatkan data yang diperlukan")
-        st.stop()
-
-    # Tampilkan data mentah
-    st.subheader("📂 Data Mentah")
-    with st.expander("Lihat Data Perusahaan Anda"):
-        st.json(company_data)
-        
-    with st.expander("Lihat Data Kompetitor"):
-        for data in competitors_data:
-            st.json(data)
-
-    # Generate laporan analisis
-    st.subheader("📈 Analisis Kompetitif")
-    analysis = generate_insights(company_data, competitors_data)
-    st.markdown(analysis)
-
-    # Tabel perbandingan fitur
-    st.subheader("🔍 Perbandingan Fitur Utama")
-    feature_df = create_feature_table(company_data, competitors_data)
-    st.dataframe(
-        feature_df,
-        use_container_width=True,
-        height=(len(feature_df) + 1) * 35 + 3
-    )
-
-# Sidebar untuk API keys
+# Sidebar for API keys
 with st.sidebar:
-    st.title("⚙️ Konfigurasi")
-    with st.expander("Kelola API Keys", expanded=True):
-        st.session_state.gemini_api_key = st.text_input(
-            "Gemini API Key",
-            value=st.session_state.env_gemini_api_key,
-            type="password"
-        )
+    st.title("AI Competitor Intelligence")
+    
+    # API Key Management Section
+    st.subheader("API Key Management")
+    
+    # Add option to show/hide API key inputs with expander
+    with st.expander("Configure API Keys", expanded=True):
+        st.info("API keys from .env file are used by default. You can override them here.")
         
-        st.session_state.firecrawl_api_key = st.text_input(
-            "Firecrawl API Key", 
-            value=st.session_state.env_firecrawl_api_key,
-            type="password"
-        )
+        # Function to handle API key updates with better validation
+        def update_api_key(key_name, env_key_name):
+            new_value = st.text_input(
+                f"{key_name} API Key", 
+                value=st.session_state[env_key_name] if st.session_state[env_key_name] else "",
+                type="password",
+                help=f"Enter your {key_name} API key or leave blank to use the one from .env file",
+                key=f"input_{key_name.lower()}"
+            )
+            
+            # Update session state regardless of input
+            if new_value:
+                st.session_state[key_name.lower() + "_api_key"] = new_value
+                return True
+            elif st.session_state[env_key_name]:
+                st.session_state[key_name.lower() + "_api_key"] = st.session_state[env_key_name]
+                return True
+            else:
+                # Set to empty string to avoid None values
+                st.session_state[key_name.lower() + "_api_key"] = ""
+                return False
         
+        # Required API keys
+        has_gemini = update_api_key("Gemini", "env_gemini_api_key")
+        has_firecrawl = update_api_key("Firecrawl", "env_firecrawl_api_key")
+        
+        # Debug information
+        st.write("API Key Status:")
+        st.write(f"Gemini: {'Set' if st.session_state.gemini_api_key else 'Not Set'}")
+        st.write(f"Firecrawl: {'Set' if st.session_state.firecrawl_api_key else 'Not Set'}")
+        
+        # Buttons for API key management
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("Reset API Keys"):
+            if st.button("Reset to .env values"):
                 st.session_state.gemini_api_key = st.session_state.env_gemini_api_key
                 st.session_state.firecrawl_api_key = st.session_state.env_firecrawl_api_key
+                st.rerun()
+        
         with col2:
-            if st.button("Simpan ke .env"):
-                try:
-                    set_key(env_path, "GEMINI_API_KEY", st.session_state.gemini_api_key)
-                    set_key(env_path, "FIRECRAWL_API_KEY", st.session_state.firecrawl_api_key)
-                    st.success("API keys tersimpan!")
-                except Exception as e:
-                    st.error(f"Error: {str(e)}")
+            if st.button("Save to .env file"):
+                if save_api_keys_to_env():
+                    st.success("API keys saved to .env file!")
+                    st.rerun()
+    
+    # Display API status
+    api_status_ok = bool(st.session_state.gemini_api_key) and bool(st.session_state.firecrawl_api_key)
+    
+    if api_status_ok:
+        st.success("✅ All required API keys are configured")
+    else:
+        missing_keys = []
+        if not st.session_state.gemini_api_key:
+            missing_keys.append("Gemini")
+        if not st.session_state.firecrawl_api_key:
+            missing_keys.append("Firecrawl")
+        
+        st.error(f"❌ Missing API keys: {', '.join(missing_keys)}")
 
-st.info("""
-**Petunjuk Penggunaan:**
-1. Masukkan API keys di sidebar
-2. Input URL perusahaan Anda
-3. Tentukan jumlah dan URL kompetitor
-4. Klik tombol "Mulai Analisis"
-""")
+# Main UI
+st.title("🧲 AI Competitor Intelligence Agent Team")
+st.info(
+    """
+    This app helps businesses analyze their competitors by extracting structured data from competitor websites and generating insights using AI.
+    - Provide your **company URL** and the **number of competitors** you want to analyze
+    - Enter the competitor URLs directly
+    - The app will extract relevant information and generate a detailed analysis report
+    """
+)
+
+# Input field for company URL
+company_url = st.text_input("Enter your company URL:", key="company_url")
+
+# Input field for number of competitors
+num_competitors = st.number_input("Number of competitor URLs to analyze:", min_value=1, max_value=5, value=3, step=1)
+
+# Generate input fields for competitor URLs
+competitor_urls = []
+for i in range(int(num_competitors)):
+    competitor_url = st.text_input(f"Competitor URL #{i+1}:", key=f"competitor_url_{i}")
+    if competitor_url:
+        competitor_urls.append(competitor_url)
+
+# Initialize API keys and tools
+if api_status_ok:
+    # Configure Gemini
+    genai.configure(api_key=st.session_state.gemini_api_key)
+    
+    firecrawl_tools = FirecrawlTools(
+        api_key=st.session_state.firecrawl_api_key,
+        scrape=False,
+        crawl=True,
+        limit=5
+    )
+
+    # Initialize Gemini model
+    generation_config = {
+        "temperature": 0.3,
+        "top_p": 1,
+        "top_k": 32,
+        "max_output_tokens": 4096,
+    }
+
+    safety_settings = [
+        {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+        {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+        {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+        {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_MEDIUM_AND_ABOVE"},
+    ]
+
+    gemini_model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash-latest",
+        generation_config=generation_config,
+        safety_settings=safety_settings
+    )
+
+    class CompetitorDataSchema(BaseModel):
+        company_name: str = Field(description="Name of the company")
+        pricing: str = Field(description="Pricing details, tiers, and plans")
+        key_features: List[str] = Field(description="Main features and capabilities of the product/service")
+        tech_stack: List[str] = Field(description="Technologies, frameworks, and tools used")
+        marketing_focus: str = Field(description="Main marketing angles and target audience")
+        customer_feedback: str = Field(description="Customer testimonials, reviews, and feedback")
+
+    def extract_competitor_info(competitor_url: str) -> Optional[dict]:
+        try:
+            # Initialize FirecrawlApp with API key
+            app = FirecrawlApp(api_key=st.session_state.firecrawl_api_key)
+            
+            # Add wildcard to crawl subpages
+            url_pattern = f"{competitor_url}/*"
+            
+            extraction_prompt = """
+            Extract detailed information about the company's offerings, including:
+            - Company name and basic information
+            - Pricing details, plans, and tiers
+            - Key features and main capabilities
+            - Technology stack and technical details
+            - Marketing focus and target audience
+            - Customer feedback and testimonials
+            
+            Analyze the entire website content to provide comprehensive information for each field.
+            """
+            
+            response = app.extract(
+                [url_pattern],
+                {
+                    'prompt': extraction_prompt,
+                    'schema': CompetitorDataSchema.model_json_schema(),
+                }
+            )
+            
+            if response.get('success') and response.get('data'):
+                extracted_info = response['data']
+                
+                # Create JSON structure
+                competitor_json = {
+                    "competitor_url": competitor_url,
+                    "company_name": extracted_info.get('company_name', 'N/A'),
+                    "pricing": extracted_info.get('pricing', 'N/A'),
+                    "key_features": extracted_info.get('key_features', [])[:5],  # Top 5 features
+                    "tech_stack": extracted_info.get('tech_stack', [])[:5],      # Top 5 tech stack items
+                    "marketing_focus": extracted_info.get('marketing_focus', 'N/A'),
+                    "customer_feedback": extracted_info.get('customer_feedback', 'N/A')
+                }
+                
+                return competitor_json
+                
+            else:
+                return None
+                
+        except Exception as e:
+            st.error(f"Error extracting data from {competitor_url}: {str(e)}")
+            return None
+
+    def extract_company_info(url: str) -> Optional[dict]:
+        try:
+            app = FirecrawlApp(api_key=st.session_state.firecrawl_api_key)
+            url_pattern = f"{url}/*"
+            
+            extraction_prompt = """
+            Extract detailed information about the company's offerings, including:
+            - Company name and basic information
+            - Pricing details, plans, and tiers
+            - Key features and main capabilities
+            - Technology stack and technical details
+            - Marketing focus and target audience
+            - Customer feedback and testimonials
+            
+            Analyze the entire website content to provide comprehensive information for each field.
+            """
+            
+            response = app.extract(
+                [url_pattern],
+                {
+                    'prompt': extraction_prompt,
+                    'schema': CompetitorDataSchema.model_json_schema(),
+                }
+            )
+            
+            if response.get('success') and response.get('data'):
+                extracted_info = response['data']
+                
+                company_json = {
+                    "url": url,
+                    "company_name": extracted_info.get('company_name', 'N/A'),
+                    "pricing": extracted_info.get('pricing', 'N/A'),
+                    "key_features": extracted_info.get('key_features', [])[:5],
+                    "tech_stack": extracted_info.get('tech_stack', [])[:5],
+                    "marketing_focus": extracted_info.get('marketing_focus', 'N/A'),
+                    "customer_feedback": extracted_info.get('customer_feedback', 'N/A')
+                }
+                
+                return company_json
+                
+            else:
+                return None
+                
+        except Exception as e:
+            st.error(f"Error extracting data from your company URL {url}: {str(e)}")
+            return None
+
+    def generate_comparison_report(company_data: dict, competitor_data: list) -> None:
+        all_data = [company_data] + competitor_data
+        formatted_data = json.dumps(all_data, indent=2)
+        
+        system_prompt = f"""
+        As an expert business analyst, analyze the following data in JSON format and create a structured comparison.
+        The first entry is the user's company, followed by competitor data.
+        Extract and summarize the key information into concise points.
+
+        {formatted_data}
+
+        Return the data in a structured format with EXACTLY these columns:
+        Company, Pricing, Key Features, Tech Stack, Marketing Focus, Customer Feedback
+
+        Rules:
+        1. For Company: Include company name and URL
+        2. For Key Features: List top 3 most important features only
+        3. For Tech Stack: List top 3 most relevant technologies only
+        4. Keep all entries clear and concise
+        5. Format feedback as brief quotes
+        6. Return ONLY the structured data as a markdown table, no additional text
+        """
+
+        try:
+            response = gemini_model.generate_content(system_prompt)
+            table_lines = [
+                line.strip() 
+                for line in response.text.split('\n') 
+                if line.strip() and '|' in line
+            ]
+            
+            headers = [
+                col.strip() 
+                for col in table_lines[0].split('|') 
+                if col.strip()
+            ]
+            
+            data_rows = []
+            for line in table_lines[2:]:
+                row_data = [
+                    cell.strip() 
+                    for cell in line.split('|') 
+                    if cell.strip()
+                ]
+                if len(row_data) == len(headers):
+                    data_rows.append(row_data)
+            
+            df = pd.DataFrame(
+                data_rows,
+                columns=headers
+            )
+            
+            st.subheader("Company Comparison")
+            st.table(df)
+            
+        except Exception as e:
+            st.error(f"Error creating comparison table: {str(e)}")
+            st.write("Raw comparison data for debugging:", response.text)
+
+    def generate_analysis_report(company_data: dict, competitor_data: list):
+        formatted_company = json.dumps(company_data, indent=2)
+        formatted_competitors = json.dumps(competitor_data, indent=2)
+        
+        prompt = f"""Analyze the following data and identify market opportunities to improve the company:
+        
+        USER'S COMPANY:
+        {formatted_company}
+        
+        COMPETITORS:
+        {formatted_competitors}
+
+        Tasks:
+        1. Identify market gaps and opportunities based on competitor offerings
+        2. Analyze competitor weaknesses that the company can capitalize on
+        3. Recommend unique features or capabilities they should develop
+        4. Suggest pricing and positioning strategies to gain competitive advantage
+        5. Outline specific growth opportunities in underserved market segments
+        6. Provide actionable recommendations for product development and go-to-market strategy
+
+        Focus on finding opportunities where the company can differentiate and do better than competitors.
+        Highlight any unmet customer needs or pain points they can address.
+        """
+
+        try:
+            response = gemini_model.generate_content(prompt)
+            return response.text
+        except Exception as e:
+            return f"Error generating analysis: {str(e)}"
+
+    # Run analysis when the user clicks the button
+    if st.button("Analyze Competitors"):
+        if not api_status_ok:
+            st.error("⚠️ Please configure all required API keys in the sidebar before proceeding.")
+        elif not company_url:
+            st.error("Please enter your company URL.")
+        elif len(competitor_urls) == 0:
+            st.error("Please enter at least one competitor URL.")
+        elif len(competitor_urls) < int(num_competitors):
+            st.warning(f"You specified {num_competitors} competitors but only entered {len(competitor_urls)} URLs.")
+            st.error("Please fill in all competitor URL fields.")
+        else:
+            # Extract company information
+            with st.spinner(f"Analyzing your company: {company_url}..."):
+                company_info = extract_company_info(company_url)
+                if company_info is None:
+                    st.error(f"Could not extract data from your company URL: {company_url}")
+                    st.stop()
+            
+            # Extract competitor information
+            competitor_data = []
+            for comp_url in competitor_urls:
+                with st.spinner(f"Analyzing Competitor: {comp_url}..."):
+                    competitor_info = extract_competitor_info(comp_url)
+                    if competitor_info is not None:
+                        competitor_data.append(competitor_info)
+            
+            if competitor_data:
+                # Generate and display comparison report
+                with st.spinner("Generating comparison table..."):
+                    generate_comparison_report(company_info, competitor_data)
+                
+                # Generate and display final analysis report
+                with st.spinner("Generating analysis report..."):
+                    analysis_report = generate_analysis_report(company_info, competitor_data)
+                    st.subheader("Competitor Analysis Report")
+                    st.markdown(analysis_report)
+                
+                st.success("Analysis complete!")
+            else:
+                st.error("Could not extract data from any competitor URLs")
+    else:
+        if not api_status_ok:
+            st.warning("⚠️ Configure your API keys in the sidebar before analyzing competitors.")
