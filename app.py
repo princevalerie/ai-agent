@@ -543,7 +543,7 @@ if api_status_ok:
     )
 
     generation_config = {
-        "temperature": 0.5,
+        "temperature": 0.2,
         "top_p": 1,
         "top_k": 32,
         "max_output_tokens": 4096,
