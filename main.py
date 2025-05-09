@@ -157,13 +157,15 @@ if api_status_ok:
             - Customer testimonials
             """
             
-            response = app.extract(
-                [url_pattern],
-                {
-                    'prompt': extraction_prompt,
-                    'schema': CompetitorDataSchema.model_json_schema(),
-                }
-            )
+            # Fix: Combine URL patterns and extraction configuration into a single dictionary
+            extract_config = {
+                'urls': [url_pattern],
+                'prompt': extraction_prompt,
+                'schema': CompetitorDataSchema.model_json_schema(),
+            }
+            
+            # Fix: Pass only one argument (the configuration) to extract()
+            response = app.extract(extract_config)
             
             if response.get('success') and response.get('data'):
                 data = response['data']
@@ -243,10 +245,11 @@ if api_status_ok:
                         competitors_data.append(data)
             
             if company_data and competitors_data:
-                # st.subheader("Competitive Comparison")
-                # comparison_df = generate_comparison(company_data, competitors_data)
-                # if not comparison_df.empty:
-                #     st.table(comparison_df)
+                # Uncomment to enable comparison table
+                st.subheader("Competitive Comparison")
+                comparison_df = generate_comparison(company_data, competitors_data)
+                if not comparison_df.empty:
+                    st.table(comparison_df)
                 
                 st.subheader("Strategic Recommendations")
                 analysis = generate_strategic_analysis(company_data, competitors_data)
