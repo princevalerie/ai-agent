@@ -143,62 +143,74 @@ if api_status_ok:
         marketing_focus: str = Field(description="Marketing focus")
         customer_feedback: str = Field(description="Customer feedback")
 
-    def extract_data(url: str, is_competitor: bool = False) -> Optional[dict]:
-        try:
-            app = FirecrawlApp(api_key=st.session_state.firecrawl_api_key)
-            url_pattern = f"{url}/*"
+   
+            # First, crawl the website to get content
+            crawl_result = app.crawl(url, depth=1, max_pages=5)
             
-            extraction_prompt = """
-            Extract detailed company information from website content including:
-            - Company name
-            - Pricing structure
-            - Key product features
-            - Marketing strategies
-            - Customer testimonials
+            if not crawl_result or not crawl_result.get('success'):
+                st.warning(f"Failed to crawl {url}")
+                return None
+                
+            # Use simpler extraction approach
+            extraction_prompt = f"""
+            Extract the following information from the content of {url}:
+            1. Company name
+            2. Pricing structure and plans
+            3. Key product features (list at least 3)
+            4. Main marketing messages and focus
+            5. Any customer testimonials or reviews
+
+            Format the output as a structured JSON with these fields:
+            - company_name (string)
+            - pricing (string)
+            - key_features (array of strings)
+            - marketing_focus (string)
+            - customer_feedback (string)
+            
+            If information is not available, use "Not available" as the value.
             """
             
-            # Prepare the schema as a dictionary
-            schema = {
-                "type": "object",
-                "properties": {
-                    "company_name": {"type": "string", "description": "Company name"},
-                    "pricing": {"type": "string", "description": "Pricing details"},
-                    "key_features": {"type": "array", "items": {"type": "string"}, "description": "Key features"},
-                    "marketing_focus": {"type": "string", "description": "Marketing focus"},
-                    "customer_feedback": {"type": "string", "description": "Customer feedback"}
-                },
-                "required": ["company_name"]
-            }
-            
-            # Try extracting with URLs and configuration in separate parameters
+            # Use Gemini for extraction since we already have it configured
             try:
-                response = app.extract(
-                    [url_pattern],
-                    {
-                        "prompt": extraction_prompt,
-                        "schema": schema
+                response = gemini_model.generate_content(extraction_prompt)
+                
+                try:
+                    # Try to parse as JSON
+                    json_start = response.text.find('{')
+                    json_end = response.text.rfind('}') + 1
+                    
+                    if json_start >= 0 and json_end > json_start:
+                        json_str = response.text[json_start:json_end]
+                        data = json.loads(json_str)
+                    else:
+                        # If JSON parsing fails, extract using simple parsing
+                        lines = response.text.split('\n')
+                        data = {
+                            "company_name": next((line.split(':')[1].strip() for line in lines if "company_name" in line.lower()), "N/A"),
+                            "pricing": next((line.split(':')[1].strip() for line in lines if "pricing" in line.lower()), "N/A"),
+                            "key_features": [feat.strip() for feat in next((line.split(':')[1].strip() for line in lines if "key_features" in line.lower()), "").split(',')],
+                            "marketing_focus": next((line.split(':')[1].strip() for line in lines if "marketing_focus" in line.lower()), "N/A"),
+                            "customer_feedback": next((line.split(':')[1].strip() for line in lines if "customer_feedback" in line.lower()), "N/A")
+                        }
+                    
+                    # Ensure key_features is a list
+                    if not isinstance(data.get("key_features"), list):
+                        data["key_features"] = [data.get("key_features", "N/A")]
+                    
+                    return {
+                        "url": url,
+                        "company_name": data.get('company_name', 'N/A'),
+                        "pricing": data.get('pricing', 'N/A'),
+                        "key_features": data.get('key_features', [])[:5],
+                        "marketing_focus": data.get('marketing_focus', 'N/A'),
+                        "customer_feedback": data.get('customer_feedback', 'N/A')
                     }
-                )
-            except TypeError:
-                # If the above fails, try the alternative format as a single parameter
-                extract_config = {
-                    "urls": [url_pattern],
-                    "prompt": extraction_prompt,
-                    "schema": schema
-                }
-                response = app.extract(extract_config)
-            
-            if response and response.get('data'):
-                data = response['data']
-                return {
-                    "url": url,
-                    "company_name": data.get('company_name', 'N/A'),
-                    "pricing": data.get('pricing', 'N/A'),
-                    "key_features": data.get('key_features', [])[:5],
-                    "marketing_focus": data.get('marketing_focus', 'N/A'),
-                    "customer_feedback": data.get('customer_feedback', 'N/A')
-                }
-            return None
+                except json.JSONDecodeError:
+                    st.warning(f"Failed to parse extraction results for {url}")
+                    return None
+            except Exception as e:
+                st.error(f"Error extracting data from {url}: {str(e)}")
+                return None
         except Exception as e:
             st.error(f"Error processing {url}: {str(e)}")
             return None
