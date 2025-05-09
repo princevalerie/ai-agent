@@ -157,17 +157,38 @@ if api_status_ok:
             - Customer testimonials
             """
             
-            # Fix: Combine URL patterns and extraction configuration into a single dictionary
-            extract_config = {
-                'urls': [url_pattern],
-                'prompt': extraction_prompt,
-                'schema': CompetitorDataSchema.model_json_schema(),
+            # Prepare the schema as a dictionary
+            schema = {
+                "type": "object",
+                "properties": {
+                    "company_name": {"type": "string", "description": "Company name"},
+                    "pricing": {"type": "string", "description": "Pricing details"},
+                    "key_features": {"type": "array", "items": {"type": "string"}, "description": "Key features"},
+                    "marketing_focus": {"type": "string", "description": "Marketing focus"},
+                    "customer_feedback": {"type": "string", "description": "Customer feedback"}
+                },
+                "required": ["company_name"]
             }
             
-            # Fix: Pass only one argument (the configuration) to extract()
-            response = app.extract(extract_config)
+            # Try extracting with URLs and configuration in separate parameters
+            try:
+                response = app.extract(
+                    [url_pattern],
+                    {
+                        "prompt": extraction_prompt,
+                        "schema": schema
+                    }
+                )
+            except TypeError:
+                # If the above fails, try the alternative format as a single parameter
+                extract_config = {
+                    "urls": [url_pattern],
+                    "prompt": extraction_prompt,
+                    "schema": schema
+                }
+                response = app.extract(extract_config)
             
-            if response.get('success') and response.get('data'):
+            if response and response.get('data'):
                 data = response['data']
                 return {
                     "url": url,
