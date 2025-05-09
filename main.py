@@ -136,54 +136,110 @@ if api_status_ok:
         safety_settings=safety_settings
     )
 
-    class CompetitorDataSchema(BaseModel):
-        company_name: str = Field(description="Company name")
-        pricing: str = Field(description="Pricing details")
-        key_features: List[str] = Field(description="Key features")
-        marketing_focus: str = Field(description="Marketing focus")
-        customer_feedback: str = Field(description="Customer feedback")
+    # Define schema for competitor data
+    company_data_schema = {
+        "type": "object",
+        "properties": {
+            "company_name": {"type": "string", "description": "Company name"},
+            "pricing": {"type": "string", "description": "Pricing details"},
+            "key_features": {"type": "array", "items": {"type": "string"}, "description": "Key features"},
+            "marketing_focus": {"type": "string", "description": "Marketing focus"},
+            "customer_feedback": {"type": "string", "description": "Customer feedback"}
+        },
+        "required": ["company_name"]
+    }
 
     def extract_data(url: str, is_competitor: bool = False) -> Optional[dict]:
         try:
+            # Initialize FirecrawlApp with API key
             app = FirecrawlApp(api_key=st.session_state.firecrawl_api_key)
             
-            # Create extraction configuration based on Firecrawl API requirements
-            extraction_config = {
-                "url": url,  # Use the base URL without wildcard
-                "extraction": {
-                    "prompt": """Extract detailed company information from website content including:
-                    - Company name
-                    - Pricing structure
-                    - Key product features
-                    - Marketing strategies
-                    - Customer testimonials""",
-                    "schema": CompetitorDataSchema.model_json_schema()
-                }
-            }
+            # Just to test the simplest possible extraction first
+            extraction_prompt = """
+            Extract detailed company information from this website:
+            - Company name
+            - Pricing structure (if available)
+            - Key product features (list at least 3)
+            - Marketing focus or unique selling points
+            - Customer testimonials or feedback (if available)
+            """
             
-            # Call extract with the proper configuration
-            response = app.extract(extraction_config)
+            # Use the prompt method - simplest approach
+            response = app.prompt(url, extraction_prompt)
             
-            # Debug the response
-            st.write(f"Debug - Response for {url}:", response)
+            # Debug response
+            st.text(f"Debug response type: {type(response)}")
             
-            if response and isinstance(response, dict) and response.get('data'):
-                data = response['data']
-                return {
-                    "url": url,
-                    "company_name": data.get('company_name', 'N/A'),
-                    "pricing": data.get('pricing', 'N/A'),
-                    "key_features": data.get('key_features', [])[:5],
-                    "marketing_focus": data.get('marketing_focus', 'N/A'),
-                    "customer_feedback": data.get('customer_feedback', 'N/A')
-                }
-            return None
+            # If prompt successful, process the text response and extract structured data
+            if response and isinstance(response, str):
+                # Use Gemini API to convert the text into structured data
+                structured_prompt = f"""
+                Convert this extracted website information into structured JSON data:
+                
+                {response}
+                
+                Output format should be valid JSON with these fields:
+                - company_name (string)
+                - pricing (string)
+                - key_features (array of strings)
+                - marketing_focus (string)
+                - customer_feedback (string)
+                
+                Return ONLY the JSON, nothing else.
+                """
+                
+                try:
+                    structured_response = gemini_model.generate_content(structured_prompt)
+                    # Extract JSON from the response
+                    json_text = structured_response.text
+                    
+                    # Clean up JSON text to ensure it's valid
+                    if "```json" in json_text:
+                        json_text = json_text.split("```json")[1].split("```")[0].strip()
+                    elif "```" in json_text:
+                        json_text = json_text.split("```")[1].split("```")[0].strip()
+                    
+                    data = json.loads(json_text)
+                    
+                    # Return processed data
+                    return {
+                        "url": url,
+                        "company_name": data.get('company_name', 'N/A'),
+                        "pricing": data.get('pricing', 'N/A'),
+                        "key_features": data.get('key_features', [])[:5],
+                        "marketing_focus": data.get('marketing_focus', 'N/A'),
+                        "customer_feedback": data.get('customer_feedback', 'N/A')
+                    }
+                    
+                except Exception as e:
+                    st.error(f"Error parsing data from {url}: {str(e)}")
+                    # Still return some partial data if we have it
+                    return {
+                        "url": url,
+                        "company_name": url,
+                        "pricing": "Information not available",
+                        "key_features": ["Could not extract features"],
+                        "marketing_focus": "Information not available",
+                        "customer_feedback": "Information not available"
+                    }
+            else:
+                st.error(f"Failed to get text extraction from {url}")
+                return None
+                
         except Exception as e:
             st.error(f"Error processing {url}: {str(e)}")
-            # Log the full error for debugging
             import traceback
-            st.write(f"Full error for {url}:", traceback.format_exc())
-            return None
+            st.text(f"Full error for {url}: {traceback.format_exc()}")
+            
+            # Return fallback data instead of None
+            return {
+                "url": url,
+                "company_name": url.split("//")[1].split("/")[0],
+                "pricing": "Information not available",
+                "key_features": ["Could not extract features"],
+                "marketing_focus": "Information not available",
+                "customer_feedback": "Information not available"
+            }
 
     def generate_comparison(company: dict, competitors: list) -> pd.DataFrame:
         all_data = [company] + competitors
