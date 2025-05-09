@@ -146,28 +146,28 @@ if api_status_ok:
     def extract_data(url: str, is_competitor: bool = False) -> Optional[dict]:
         try:
             app = FirecrawlApp(api_key=st.session_state.firecrawl_api_key)
-            url_pattern = f"{url}/*"
             
-            extraction_prompt = """
-            Extract detailed company information from website content including:
-            - Company name
-            - Pricing structure
-            - Key product features
-            - Marketing strategies
-            - Customer testimonials
-            """
-            
-            # Fix: Combine URL patterns and extraction configuration into a single dictionary
-            extract_config = {
-                'urls': [url_pattern],
-                'prompt': extraction_prompt,
-                'schema': CompetitorDataSchema.model_json_schema(),
+            # Create extraction configuration based on Firecrawl API requirements
+            extraction_config = {
+                "url": url,  # Use the base URL without wildcard
+                "extraction": {
+                    "prompt": """Extract detailed company information from website content including:
+                    - Company name
+                    - Pricing structure
+                    - Key product features
+                    - Marketing strategies
+                    - Customer testimonials""",
+                    "schema": CompetitorDataSchema.model_json_schema()
+                }
             }
             
-            # Fix: Pass only one argument (the configuration) to extract()
-            response = app.extract(extract_config)
+            # Call extract with the proper configuration
+            response = app.extract(extraction_config)
             
-            if response.get('success') and response.get('data'):
+            # Debug the response
+            st.write(f"Debug - Response for {url}:", response)
+            
+            if response and isinstance(response, dict) and response.get('data'):
                 data = response['data']
                 return {
                     "url": url,
@@ -180,6 +180,9 @@ if api_status_ok:
             return None
         except Exception as e:
             st.error(f"Error processing {url}: {str(e)}")
+            # Log the full error for debugging
+            import traceback
+            st.write(f"Full error for {url}:", traceback.format_exc())
             return None
 
     def generate_comparison(company: dict, competitors: list) -> pd.DataFrame:
